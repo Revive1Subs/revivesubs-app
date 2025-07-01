@@ -4510,15 +4510,14 @@
             getEl('reportContent').innerHTML = reportHtml;
         }
 
-                function generateBillingCycleReport(startDate, endDate) {
+                        function generateBillingCycleReport(startDate, endDate) {
             const periodLogs = (data.recentActivityLog || []).filter(log => {
                 const logDate = new Date(log.timestamp);
                 return log.details && log.details.type === 'EPISODE_PROGRESS' &&
                        logDate >= startDate && logDate <= endDate;
-            }).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+            });
 
-            const memberData = {};
-
+            const activeMemberData = {};
             periodLogs.forEach(log => {
                 const details = log.details;
                 const project = [...data.anime, ...data.series].find(p => p.id === details.projectId);
@@ -4528,86 +4527,80 @@
                     const roleInfo = details.team[roleKey];
                     if (roleInfo.id) {
                         const memberId = roleInfo.id;
-
-                        if (!memberData[memberId]) {
-                            const member = data.members.find(m => m.id === memberId);
-                            if (!member) return;
-                            memberData[memberId] = {
-                                name: member.name,
-                                paymentMethod: member.paymentMethod || 'غير محدد',
-                                workDone: {},
-                                totalFeeAllTime: member.totalFee || 0,
-                                amountReceivedAllTime: member.amountReceived || 0,
-                            };
+                        if (!activeMemberData[memberId]) {
+                            activeMemberData[memberId] = { workDone: {}, earningsThisPeriod: 0 };
                         }
-                        
                         const workKey = `${project.id}_${roleKey}`;
-                        if (!memberData[memberId].workDone[workKey]) {
-                            memberData[memberId].workDone[workKey] = {
-                                projectName: project.name,
-                                role: roleToArabic(roleKey),
-                                episodesCount: 0,
-                                costPerEpisode: (roleInfo.price || 0)
+                        if (!activeMemberData[memberId].workDone[workKey]) {
+                            activeMemberData[memberId].workDone[workKey] = {
+                                projectName: project.name, role: roleToArabic(roleKey),
+                                episodesCount: 0, costPerEpisode: (roleInfo.price || 0)
                             };
                         }
-                        memberData[memberId].workDone[workKey].episodesCount += details.change;
+                        activeMemberData[memberId].workDone[workKey].episodesCount += details.change;
                     }
                 });
+            });
+
+            for (const memberId in activeMemberData) {
+                let earnings = 0;
+                Object.values(activeMemberData[memberId].workDone).forEach(work => {
+                    earnings += work.episodesCount * work.costPerEpisode;
+                });
+                activeMemberData[memberId].earningsThisPeriod = earnings;
+            }
+            
+            const reportMembers = {};
+            let grandTotalOwed = 0;
+
+            data.members.forEach(member => {
+                const totalOwedForMember = (member.totalFee || 0) - (member.amountReceived || 0);
+                grandTotalOwed += totalOwedForMember;
+
+                if (totalOwedForMember !== 0 || activeMemberData[member.id]) {
+                    reportMembers[member.id] = {
+                        name: member.name,
+                        paymentMethod: member.paymentMethod || 'غير محدد',
+                        totalFeeAllTime: member.totalFee || 0,
+                        amountReceivedAllTime: member.amountReceived || 0,
+                        workDone: activeMemberData[member.id] ? activeMemberData[member.id].workDone : {},
+                        earningsThisPeriod: activeMemberData[member.id] ? activeMemberData[member.id].earningsThisPeriod : 0,
+                    };
+                }
             });
 
             const formattedStartDate = startDate.toLocaleDateString('ar-EG');
             const formattedEndDate = new Date(endDate.getTime()).toLocaleDateString('ar-EG');
             let html = `<div class="report-header"><h3>التقرير المالي لفترة الدفع من ${formattedStartDate} إلى ${formattedEndDate}</h3><p>تاريخ الإنشاء: ${new Date().toLocaleDateString('ar-EG', { dateStyle: 'full' })}</p></div>`;
 
-            // START OF MODIFICATION
-            let grandTotalOwed = 0; // سيحتوي على إجمالي المستحقات
+            html += `<div class="report-section"><h4><i class="fas fa-file-invoice-dollar"></i> إجمالي المستحقات المطلوب دفعها (لكل الأعضاء)</h4><p style="font-size: 1.5em; text-align: center;" class="${getMoneyClass(grandTotalOwed)}">${formatMoney(grandTotalOwed)}</p></div>`;
 
-            for (const memberId in memberData) {
-                let memberEarningsThisPeriod = 0;
-                const member = memberData[memberId];
-                Object.values(member.workDone).forEach(work => {
-                    if (work.episodesCount !== 0) {
-                         work.totalEarnings = work.episodesCount * work.costPerEpisode;
-                         memberEarningsThisPeriod += work.totalEarnings;
-                    }
-                });
-                member.earningsThisPeriod = memberEarningsThisPeriod;
-                
-                // نحسب إجمالي المبلغ المتبقي لهذا العضو ونضيفه إلى الإجمالي العام
-                const totalOwedForMember = (member.totalFeeAllTime - member.amountReceivedAllTime);
-                if (member.earningsThisPeriod > 0) { // فقط الأعضاء الذين عملوا في هذه الفترة
-                    grandTotalOwed += totalOwedForMember;
-                }
-            }
-
-            if (Object.keys(memberData).length === 0 || grandTotalOwed === 0) {
-                 html += `<div class="report-section"><p class="text-muted text-center">لم يتم تسجيل أي عمل يستحق الدفع خلال هذه الفترة.</p></div>`;
+            if (Object.keys(reportMembers).length === 0) {
+                 html += `<div class="report-section"><p class="text-muted text-center">لا يوجد أعضاء لديهم مستحقات حالياً.</p></div>`;
                 return html;
             }
 
-            // نستخدم المتغير الجديد grandTotalOwed لعرض الإجمالي المطلوب دفعه
-            html += `<div class="report-section"><h4><i class="fas fa-file-invoice-dollar"></i> إجمالي المستحقات المطلوب دفعها</h4><p style="font-size: 1.5em; text-align: center;" class="${getMoneyClass(grandTotalOwed)}">${formatMoney(grandTotalOwed)}</p></div>`;
-            // END OF MODIFICATION
-
-            for (const memberId in memberData) {
-                const member = memberData[memberId];
-                if (member.earningsThisPeriod === 0) continue;
-
+            for (const memberId in reportMembers) {
+                const member = reportMembers[memberId];
                 const totalOwedNow = (member.totalFeeAllTime - member.amountReceivedAllTime);
                 const previousBalance = totalOwedNow - member.earningsThisPeriod;
-                const paymentAmount = member.earningsThisPeriod;
 
                 html += `<div class="report-section"><h4><i class="fas fa-user"></i> ${member.name}</h4>`;
                 
-                html += `<h5>تفاصيل العمل المنجز في هذه الفترة</h5><div class="table-container"><table><thead><tr><th>العمل والدور</th><th>عدد الحلقات</th><th>التكلفة</th></tr></thead><tbody>`;
-                Object.values(member.workDone).filter(w => w.episodesCount !== 0).forEach(work => {
-                    html += `<tr>
-                                <td>${work.projectName} - ${work.role}</td>
-                                <td>${work.episodesCount}</td>
-                                <td class="${getMoneyClass(work.totalEarnings)}">${formatMoney(work.totalEarnings)}</td>
-                             </tr>`;
-                });
-                html += `</tbody></table></div>`;
+                if (member.earningsThisPeriod > 0) {
+                    html += `<h5>تفاصيل العمل المنجز في هذه الفترة</h5><div class="table-container"><table><thead><tr><th>العمل والدور</th><th>عدد الحلقات</th><th>التكلفة</th></tr></thead><tbody>`;
+                    Object.values(member.workDone).filter(w => w.episodesCount !== 0).forEach(work => {
+                        const workTotal = work.episodesCount * work.costPerEpisode;
+                        html += `<tr>
+                                    <td>${work.projectName} - ${work.role}</td>
+                                    <td>${work.episodesCount}</td>
+                                    <td class="${getMoneyClass(workTotal)}">${formatMoney(workTotal)}</td>
+                                 </tr>`;
+                    });
+                    html += `</tbody></table></div>`;
+                } else {
+                    html += `<h5>تفاصيل العمل المنجز في هذه الفترة</h5><p class="text-muted">لم يتم تسجيل أي عمل لهذا العضو خلال الفترة المحددة.</p>`;
+                }
                 
                 html += `<div style="margin-top: 20px;">
                             <h5>الملخص المالي</h5>
@@ -4619,8 +4612,8 @@
                             </ul>
                  </div>
                  <div style="margin-top: 20px; text-align: left;">
-                    <button class="btn btn-success" id="pay-btn-${memberId}" onclick="recordPayment('${memberId}', ${paymentAmount})">
-                        <i class="fas fa-check-circle"></i> تسجيل دفعة (${formatMoney(paymentAmount)})
+                    <button class="btn btn-success" id="pay-btn-${memberId}" onclick="recordPayment('${memberId}', ${totalOwedNow})" ${totalOwedNow <= 0 ? 'disabled' : ''}>
+                        <i class="fas fa-check-circle"></i> تسجيل دفعة (${formatMoney(totalOwedNow)})
                     </button>
                  </div>`;
                 html += `</div>`;
