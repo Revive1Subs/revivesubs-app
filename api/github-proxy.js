@@ -7,17 +7,11 @@ async function apiRequest(url, method = 'GET', body = null, pat) {
   };
   if (body) headers['Content-Type'] = 'application/json';
 
-  const response = await fetch(url, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : null
-  });
-
+  const response = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : null });
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({ message: response.statusText }));
     throw new Error(`GitHub API Error: ${response.status} ${errorData.message || ''}`);
   }
-
   return response.json();
 }
 
@@ -30,32 +24,38 @@ export default async function handler(req, res) {
   const GIT_BRANCH      = 'main';
 
   if (!GITHUB_PAT) {
-    return res.status(500).json({ error: 'GITHUB_PAT is missing in environment.' });
+    return res.status(500).json({ error: 'GITHUB_PAT غير معرف في البيئة.' });
   }
 
-  // CORS headers
+  // إعدادات CORS
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
-  );
+  res.setHeader('Access-Control-Allow-Headers',
+    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version');
   if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
+    return res.status(200).end();
   }
 
-  // جلب الملف
+  // ======== GET ========
   if (req.method === 'GET') {
     try {
+      // أولاً نطلب بيانات الملف من GitHub
       const url = `${API_BASE}/repos/${GITHUB_USERNAME}/${REPO_NAME}/contents/${FILE_PATH}?ref=${GIT_BRANCH}`;
       const fileMeta = await apiRequest(url, 'GET', null, GITHUB_PAT);
-      return res.status(200).json({
-        content: fileMeta.content,
-        sha:     fileMeta.sha
-      });
+
+      // إذا لم يُرجع GitHub حقل content، نجرب التحميل عبر download_url
+      let content = fileMeta.content;
+      if (!content && fileMeta.download_url) {
+        const rawRes = await fetch(fileMeta.download_url);
+        const text = await rawRes.text();
+        content = btoa(unescape(encodeURIComponent(text)));
+      }
+
+      // الآن نُعيد المحتوى و SHA
+      return res.status(200).json({ content, sha: fileMeta.sha });
     } catch (error) {
+      // 404 → الملف غير موجود بعد
       if (error.message.includes('404')) {
         return res.status(404).json({ message: 'الملف غير موجود بعد في المستودع.' });
       }
@@ -63,16 +63,16 @@ export default async function handler(req, res) {
     }
   }
 
-  // تحديث أو إنشاء الملف
-  else if (req.method === 'POST') {
+  // ======== POST ========
+  if (req.method === 'POST') {
     try {
       const { content, sha } = req.body;
       const url = `${API_BASE}/repos/${GITHUB_USERNAME}/${REPO_NAME}/contents/${FILE_PATH}`;
 
       const result = await apiRequest(url, 'PUT', {
         message: `Data update: ${new Date().toISOString()}`,
-        content,              // base64
-        ...(sha ? { sha } : {}),  // ضع sha فقط لو موجود
+        content,                  // Base64
+        ...(sha ? { sha } : {}),  // نمرر sha فقط إذا وُجد
         branch: GIT_BRANCH
       }, GITHUB_PAT);
 
@@ -85,9 +85,7 @@ export default async function handler(req, res) {
     }
   }
 
-  // غير مدعوم
-  else {
-    res.setHeader('Allow', ['GET', 'POST']);
-    res.status(405).end(`Method ${req.method} Not Allowed`);
-  }
+  // أي Method أخرى غير مدعومة
+  res.setHeader('Allow', ['GET', 'POST']);
+  return res.status(405).end(`Method ${req.method} Not Allowed`);
 }
