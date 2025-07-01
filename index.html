@@ -4510,7 +4510,7 @@
             getEl('reportContent').innerHTML = reportHtml;
         }
 
-        function generateBillingCycleReport(startDate, endDate) {
+                function generateBillingCycleReport(startDate, endDate) {
             const periodLogs = (data.recentActivityLog || []).filter(log => {
                 const logDate = new Date(log.timestamp);
                 return log.details && log.details.type === 'EPISODE_PROGRESS' &&
@@ -4559,7 +4559,9 @@
             const formattedEndDate = new Date(endDate.getTime()).toLocaleDateString('ar-EG');
             let html = `<div class="report-header"><h3>التقرير المالي لفترة الدفع من ${formattedStartDate} إلى ${formattedEndDate}</h3><p>تاريخ الإنشاء: ${new Date().toLocaleDateString('ar-EG', { dateStyle: 'full' })}</p></div>`;
 
-            let grandTotalThisPeriod = 0;
+            // START OF MODIFICATION
+            let grandTotalOwed = 0; // سيحتوي على إجمالي المستحقات
+
             for (const memberId in memberData) {
                 let memberEarningsThisPeriod = 0;
                 const member = memberData[memberId];
@@ -4570,15 +4572,22 @@
                     }
                 });
                 member.earningsThisPeriod = memberEarningsThisPeriod;
-                grandTotalThisPeriod += memberEarningsThisPeriod;
+                
+                // نحسب إجمالي المبلغ المتبقي لهذا العضو ونضيفه إلى الإجمالي العام
+                const totalOwedForMember = (member.totalFeeAllTime - member.amountReceivedAllTime);
+                if (member.earningsThisPeriod > 0) { // فقط الأعضاء الذين عملوا في هذه الفترة
+                    grandTotalOwed += totalOwedForMember;
+                }
             }
 
-            if (grandTotalThisPeriod === 0) {
+            if (Object.keys(memberData).length === 0 || grandTotalOwed === 0) {
                  html += `<div class="report-section"><p class="text-muted text-center">لم يتم تسجيل أي عمل يستحق الدفع خلال هذه الفترة.</p></div>`;
                 return html;
             }
 
-            html += `<div class="report-section"><h4><i class="fas fa-dollar-sign"></i> إجمالي المدفوعات لهذه الفترة</h4><p style="font-size: 1.5em; text-align: center;" class="money-positive">${formatMoney(grandTotalThisPeriod)}</p></div>`;
+            // نستخدم المتغير الجديد grandTotalOwed لعرض الإجمالي المطلوب دفعه
+            html += `<div class="report-section"><h4><i class="fas fa-file-invoice-dollar"></i> إجمالي المستحقات المطلوب دفعها</h4><p style="font-size: 1.5em; text-align: center;" class="${getMoneyClass(grandTotalOwed)}">${formatMoney(grandTotalOwed)}</p></div>`;
+            // END OF MODIFICATION
 
             for (const memberId in memberData) {
                 const member = memberData[memberId];
