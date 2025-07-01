@@ -21,7 +21,11 @@ export default async function handler(req, res) {
   const GITHUB_PAT = process.env.GITHUB_PAT;
   const GIT_BRANCH = 'main'; 
   const API_BASE = 'https://api.github.com';
-
+  if (!GITHUB_PAT) {
+    console.error("CRITICAL: GITHUB_PAT environment variable is not set.");
+    return res.status(500).json({ error: "خطأ في الإعدادات: المفتاح السري (GITHUB_PAT) غير موجود في الخادم." });
+  }
+  
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
