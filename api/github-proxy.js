@@ -17,8 +17,8 @@ async function apiRequest(url, method = 'GET', body = null, pat) {
 
 export default async function handler(req, res) {
   const GITHUB_PAT      = process.env.GITHUB_PAT;
-  const GITHUB_USERNAME = 'ReviveSubs';
-  const REPO_NAME       = 'revivesubs-data';
+  const GITHUB_USERNAME = 'R-S-11';
+  const REPO_NAME       = '1-data';
   const FILE_PATH       = 'data.json';
   const API_BASE        = 'https://api.github.com';
   const GIT_BRANCH      = 'main';
